@@ -133,7 +133,7 @@ private void Login_button_Click(object sender, EventArgs e) {
 - [EmployeeListForm](CS/EmployeeListForm.cs) contains a [DevExpress Grid View](https://docs.devexpress.com/WindowsForms/3464/Controls-and-Libraries/Data-Grid/Views/Grid-View) that displays a list of all Employees. Handle the [Form.Load](https://docs.microsoft.com/en-us/dotnet/api/system.windows.forms.form.load) event and: 
 	- Create a `SecuredObjectSpace` instance to access protected data and use its data manipulation APIs (for instance, *IObjectSpace.GetObjects*) OR if you prefer, the familiar `UnitOfWork` object accessible through the *SecuredObjectSpace.Session* property.
 	- Set [XPBindingSource.DataSource](https://docs.devexpress.com/XPO/DevExpress.Xpo.XPBindingSource.DataSource) to the Employees collection obtained from the secured object space.
-	- Perform the [IsGranted](https://docs.devexpress.com/eXpressAppFramework/DevExpress.ExpressApp.Security.SecurityStrategy.IsGranted(DevExpress.ExpressApp.Security.IPermissionRequest)) request to check Create operation availability and thus determine whether the New button can be enabled.
+	- Perform the CanCreate request to check Create operation availability and thus determine whether the New button can be enabled.
 		
 ``` csharp
 private void EmployeeListForm_Load(object sender, EventArgs e) {
@@ -145,11 +145,7 @@ private void EmployeeListForm_Load(object sender, EventArgs e) {
     // 
     // The XAF way:
     employeeBindingSource.DataSource = securedObjectSpace.GetObjects<Employee>();
-    newBarButtonItem.Enabled = security.IsGranted(
-        new PermissionRequest(
-            securedObjectSpace, typeof(Employee), SecurityOperations.Create
-        )
-    );
+    newBarButtonItem.Enabled = security.CanCreate<Employee>();
     protectedContentTextEdit = new RepositoryItemProtectedContentTextEdit();
 }
 ```	
@@ -158,27 +154,19 @@ private void EmployeeListForm_Load(object sender, EventArgs e) {
 ``` csharp
 private void GridView_CustomRowCellEdit(object sender, CustomRowCellEditEventArgs e) {
     string fieldName = e.Column.FieldName;
-    object targetObject = employeeGridView.GetRow(e.RowHandle);
-    if(!security.IsGranted(
-        new PermissionRequest(
-            securedObjectSpace, typeof(Employee), SecurityOperations.Read, targetObject, fieldName
-        )
-    )) {
+    Employee targetObject = (Employee)employeeGridView.GetRow(e.RowHandle);
+    if(!security.CanRead<Employee>(targetObject.Oid, securedObjectSpace, fieldName)) {
         e.RepositoryItem = protectedContentTextEdit;
     }
 }
 ```
-Note that SecuredObjectSpace returns default values (for instance, null) for protected object properties - it is secure even without any custom UI. Use the SecurityStrategy.IsGranted method to determine when to mask default values with the "Protected Content" placeholder in the UI.
+Note that SecuredObjectSpace returns default values (for instance, null) for protected object properties - it is secure even without any custom UI. Use the SecurityStrategy.CanRead method to determine when to mask default values with the "Protected Content" placeholder in the UI.
 		
-- Handle the [FocusedRowObjectChanged](https://docs.devexpress.com/WindowsForms/DevExpress.XtraGrid.Views.Base.ColumnView.FocusedRowObjectChanged) event and use the IsGranted request to check Delete operation availability and thus determine if the Delete button can be enabled.
+- Handle the [FocusedRowObjectChanged](https://docs.devexpress.com/WindowsForms/DevExpress.XtraGrid.Views.Base.ColumnView.FocusedRowObjectChanged) event and use the CanDelete request to check Delete operation availability and thus determine if the Delete button can be enabled.
 		
 ``` csharp
 private void EmployeeGridView_FocusedRowObjectChanged(object sender, FocusedRowObjectChangedEventArgs e) {
-    deleteBarButtonItem.Enabled = security.IsGranted(
-        new PermissionRequest(
-            securedObjectSpace, typeof(Employee), SecurityOperations.Delete, e.Row
-        )
-    );
+    deleteBarButtonItem.Enabled = security.CanDelete<Employee>(((Employee)e.Row).Oid, securedObjectSpace);
 }
 ```
 - Delete the current object in the [deleteBarButtonItem.ItemClick](https://docs.devexpress.com/WindowsForms/DevExpress.XtraBars.BarItem.ItemClick) event handler.
@@ -240,7 +228,7 @@ private void EmployeeGridView_RowClick(object sender, RowClickEventArgs e) {
 - [EmployeeDetailForm](CS/EmployeeDetailForm.cs) contains detailed information on the Employee object. Perform the following operation in the [Form.Load](https://docs.microsoft.com/en-us/dotnet/api/system.windows.forms.form.load) event handler: 
 		
 	- Create a `SecuredObjectSpace` instance to get the current or create new Employee object.
-	- Use the [IsGranted](https://docs.devexpress.com/eXpressAppFramework/DevExpress.ExpressApp.Security.SecurityStrategy.IsGranted(DevExpress.ExpressApp.Security.IPermissionRequest)) request to check Delete operation availability and thus determine if the Delete button can be enabled. The Delete button is always disabled if you create new object.
+	- Use the CanDelete request to check Delete operation availability and thus determine if the Delete button can be enabled. The Delete button is always disabled if you create new object.
 	- Set [XPBindingSource.DataSource](https://docs.devexpress.com/XPO/DevExpress.Xpo.XPBindingSource.DataSource) to the Employee object.
 		
 ``` csharp
@@ -253,11 +241,7 @@ private void EmployeeDetailForm_Load(object sender, EventArgs e) {
     }
     else {
         employee = securedObjectSpace.GetObject(employee);
-        deleteButtonItem.Enabled = security.IsGranted(
-            new PermissionRequest(
-                securedObjectSpace, typeof(Employee), SecurityOperations.Delete, employee
-            )
-        );
+        deleteBarButtonItem.Enabled = security.CanDelete<Employee>(employee.Oid, securedObjectSpace);
     }
     employeeBindingSource.DataSource = employee;
     AddControls();
@@ -280,26 +264,22 @@ private void AddControls() {
     foreach(KeyValuePair<string, string> pair in visibleMembers) {
         string memberName = pair.Key;
 	string caption = pair.Value;
-	AddControl(dataLayoutControl1.AddItem(), employee, memberName, caption);
+	AddControl(dataLayoutControl1.AddItem(), typeof(Employee), employee.Oid, memberName, caption);
     }
 }
 ```
-- The `AddControl` method creates a control for a specific member. Use the IsGranted request to check Read operation availability. If not available, create and disable the `ProtectedContentEdit` control which displays the "Protected Content" placeholder. Otherwise: 
+- The `AddControl` method creates a control for a specific member. Use the CanRead request to check Read operation availability. If not available, create and disable the `ProtectedContentEdit` control which displays the "Protected Content" placeholder. Otherwise: 
 		
 	- Call the `GetControl` method to create an appropriate control depending of the member type. We use the [ComboBoxEdit](https://docs.devexpress.com/WindowsForms/614/controls-and-libraries/editors-and-simple-controls/simple-editors/concepts/dropdown-editors/combo-box-editors#comboboxedit-control) control for the Department associated property.
 	- Add a binding to the [Control.DataBindings](https://docs.microsoft.com/ru-ru/dotnet/api/system.windows.forms.control.databindings?view=netframework-4.8) collection.
-	- Use the IsGranted request to check Write operation availability and thus determine whether the control should be enabled.
+	- Use the CanWrite request to check Write operation availability and thus determine whether the control should be enabled.
 		
 ``` csharp
 private void AddControl(LayoutControlItem layout, object targetObject, string memberName, string caption) {
     layout.Text = caption;
     Type type = targetObject.GetType();
     BaseEdit control;
-    if(security.IsGranted(
-        new PermissionRequest(
-            securedObjectSpace, type, SecurityOperations.Read, targetObject, memberName
-        )
-    )) {
+    if(security.CanRead(type, targetObjectKey, securedObjectSpace, memberName)) {
         control = GetControl(type, memberName);
         if(control != null) {
             control.DataBindings.Add(
@@ -308,11 +288,7 @@ private void AddControl(LayoutControlItem layout, object targetObject, string me
                      DataSourceUpdateMode.OnPropertyChanged
                 )
             );
-            control.Enabled = security.IsGranted(
-                new PermissionRequest(
-                    securedObjectSpace, type, SecurityOperations.Write, targetObject, memberName
-                 )
-            );
+            control.Enabled = security.CanWrite(type, targetObjectKey, securedObjectSpace, memberName);
         }
     }
     else {
